@@ -1517,6 +1517,7 @@ class afc:
 
                 self.logger.info("Loading {}".format(cur_lane.name))
 
+                cur_lane.set_selector_pins()
                 cur_extruder = cur_lane.extruder_obj
 
                 self.current_state = State.LOADING
@@ -2252,6 +2253,7 @@ class afc:
                     self.afcDeltaTime.log_with_time("Hub cut done")
 
             # Finalize unloading and reset lane state.
+            cur_lane.reset_selector_pins()
             cur_lane.loaded_to_hub = True
             cur_lane.unit_obj.lane_tool_unloaded(cur_lane)
             cur_lane.status = AFCLaneState.NONE

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from reactor import SelectReactor as Reactor, ReactorCompletion
     from mcu import MCU, MCU_adc
 
-try: from extras.AFC_utils import add_filament_switch, VirtualFilamentSensor
+try: from extras.AFC_utils import add_filament_switch, VirtualFilamentSensor, setup_selector_pins
 except: raise error("Error when trying to import AFC_utils.add_filament_switch\n{trace}".format(trace=traceback.format_exc()))
 
 TRAILING_STATE_NAME = "Trailing"
@@ -36,6 +36,7 @@ ADVANCING_STATE_NAME = "Advancing"
 NEUTRAL_STATE_NAME = "Neutral"
 CHECK_RUNOUT_TIMEOUT = 0.5
 FPS_ENDSTOP_POLL_TIME = 0.01  # 10ms poll interval for software endstop
+PIN_MIN_TIME = 0.100
 
 class AFCBuffer:
     def __init__(self, config):
@@ -90,6 +91,11 @@ class AFCBuffer:
         self.advance_pin: str   = None
         self.trailing_pin: str  = None
         self.buffer_distance    = config.getfloat('distance', None)
+        self.selector_pins      = config.get('selector_pins', None) # Selector pins for buffer
+        self.selector  = None
+        self.selector_values: Optional[list[int]] = None # Last values written to selector pins, None if selector_pins not configured
+        if self.selector_pins is not None:
+            self.selector = setup_selector_pins(self.selector_pins, self.printer, config)
         self.multiplier_high    = config.getfloat("multiplier_high", default=1.1, minval=1.0)
         self.multiplier_low     = config.getfloat("multiplier_low", default=0.9, minval=0.0, maxval=1.0)
         self._last_multiplier   = 1
@@ -306,6 +312,71 @@ class AFCBuffer:
             if self.last_state == ADVANCING_STATE_NAME:
                 msg += '\nAFC NOT FEEDING'
             self.afc.error.AFC_error( msg, True )
+
+    def validate_buffer_selector(self, buffer_selector: str, config: ConfigWrapper) -> list[int]:
+        """
+        Validate that buffer_selector is a comma separated list of 0/1 values.
+
+        :param buffer_selector: Comma separated string of 0/1 values, e.g. "1,0,0"
+        :param config: Config object for section that buffer_selector was defined in
+        :raises error: Raises config error if buffer_selector is not a valid comma separated
+                       list of 0/1 values, or if it does not match the length of self.selector
+
+        :return list: List of ints (0/1), in the same order as they were specified in buffer_selector
+        """
+        values = [value.strip() for value in buffer_selector.split(',')]
+        if not all(value in ('0', '1') for value in values):
+            raise config.error(
+                f"buffer_selector must be a comma separated list of 0/1 values, e.g. 1,0,0. "
+                f"Got: '{buffer_selector}'"
+            )
+
+        selector_pin_count = len(self.selector)
+        if len(values) != selector_pin_count:
+            raise config.error(
+                f"buffer_selector specifies {len(values)} value(s) "
+                f"but buffer has {selector_pin_count} selector_pins defined, they must match"
+            )
+
+        return [int(value) for value in values]
+
+    def _write_selector_pins(self, values):
+        """
+        Helper to write digital states to every selector pin, one value per pin in order.
+
+        :param values: Sequence of 0/1 values, one per pin in self.selector
+        """
+        systime = self.reactor.monotonic()
+        for pin, value in zip(self.selector, values):
+            print_time = pin.get_mcu().estimated_print_time(systime)
+            last_print_time = getattr(pin, 'afc_last_print_time', 0.)
+            print_time = max(print_time, last_print_time) + PIN_MIN_TIME
+            pin.set_digital(print_time, value)
+            pin.afc_last_print_time = print_time
+        self.selector_values = list(values)
+
+    def set_selector_pins(self, lane: AFCLane):
+        """
+        Set selector pins to the digital states specified buffer_selector.
+
+        :param lane: Lane being activated, used to look up buffer_selector values
+        """
+        if (self.selector is None
+            or lane.buffer_selector is None):
+            return
+
+        self._write_selector_pins(lane.buffer_selector)
+        self.logger.debug(f"{self.name} selector set to {lane.buffer_selector} for {lane.name}")
+
+    def reset_selector_pins(self):
+        """
+        Set all selector pins back to their default (low/0) state.
+        """
+        if self.selector is None:
+            return
+
+        self._write_selector_pins([0] * len(self.selector))
+        self.logger.debug(f"{self.name} selector reset to default state")
 
     def enable_buffer(self, lane: AFCLane):
         """
@@ -642,6 +713,7 @@ class AFCBuffer:
         if not lane_obj:
             raise gcmd.error(f"{lane} not assigned to {self.name} buffer")
 
+        self.set_selector_pins(lane_obj)
         self.enable_buffer(lane_obj)
 
     def cmd_DISABLE_BUFFER(self, gcmd):
@@ -659,6 +731,7 @@ class AFCBuffer:
         DISABLE_BUFFER BUFFER=Turtle_1
         ```
         """
+        self.reset_selector_pins()
         self.disable_buffer()
 
     def get_status(self, eventtime=None):
@@ -666,6 +739,7 @@ class AFCBuffer:
         self.response['state'] = self.last_state
         self.response['lanes'] = [lane.name for lane in self.lanes.values()]
         self.response['enabled'] = self.enable
+        self.response['selector'] = self.selector_values
 
         # Add current rotation distance if buffer is enabled and lane is loaded
         if (self.enable

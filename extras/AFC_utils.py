@@ -101,6 +101,41 @@ def add_filament_switch(switch_name: str, switch_pin: str, printer: Printer,
 
     return fila, debounce_button
 
+def setup_selector_pins(selector_pins: str, printer: Printer, config: ConfigWrapper) -> list:
+    """
+    Helper function to validate and set up selector pins as toggleable digital output pins.
+
+    :param selector_pins: Comma separated string of pin names, e.g. "PA0,PA1,PA2"
+    :param printer: printer object
+    :param config: Config object for section that selector_pins was defined in
+    :raises error: Raises config error if selector_pins is not a valid comma separated list,
+                   or if a pin fails to set up (bad pin name, already in use, etc.)
+
+    :return list: List of mcu_pin objects set up as digital_out pins.
+    """
+    pins = [pin.strip() for pin in selector_pins.split(',')]
+    if not all(pins):
+        raise config.error(
+            f"selector_pins must be a comma separated list of pins, got: '{selector_pins}'")
+
+    ppins = printer.load_object(config, "pins")
+    pin_objs = []
+    for pin in pins:
+        try:
+            pin_params = ppins.lookup_pin(pin, can_invert=True, share_type='AFC_buffer_selector')
+            mcu_pin = pin_params.get('class')
+            if mcu_pin is None:
+                mcu_pin = pin_params['chip'].setup_pin('digital_out', pin_params)
+                # Selector pins are set-and-hold, not continuously resent, so disable the
+                # firmware's resend timeout or it shuts down ~2s after every write with
+                # "Missed scheduling of next digital out event".
+                mcu_pin.setup_max_duration(0.)
+                pin_params['class'] = mcu_pin
+            pin_objs.append(mcu_pin)
+        except Exception as e:
+            raise config.error(
+                f"Error setting up selector_pins pin '{pin}': {e}")
+    return pin_objs
 
 def check_and_return( value_str:str, data_values:dict ) -> str:
     """

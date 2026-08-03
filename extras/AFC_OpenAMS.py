@@ -1459,6 +1459,7 @@ class afcAMS(afcUnit):
                         self.afc.spool.set_active_spool(cur_lane.spool_id)
                         self.lane_tool_loaded(cur_lane)
                         cur_lane.status = AFCLaneState.TOOLED
+                        cur_lane.set_selector_pins()
                         cur_lane.enable_buffer()
                     else:
                         self.lane_tool_loaded_idle(cur_lane)
@@ -1598,6 +1599,7 @@ class afcAMS(afcUnit):
         self.afc.move_e_pos(-2, cur_extruder.tool_unload_speed, "Quick Pull",
                         wait_tool=False)
         cur_lane.status = AFCLaneState.TOOL_UNLOADING
+        cur_lane.reset_selector_pins()
         cur_lane.disable_buffer()
         cur_lane.sync_to_extruder()
         cur_lane.select_lane()

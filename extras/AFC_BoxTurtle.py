@@ -132,6 +132,7 @@ class afcBoxTurtle(afcUnit):
                             else:
                                 self.lane_tool_loaded_idle(cur_lane)
 
+                            cur_lane.set_selector_pins()
                             cur_lane.enable_buffer()
                         else:
                             if cur_lane.get_toolhead_pre_sensor_state() == True or cur_lane.extruder_obj.tool_end_state:

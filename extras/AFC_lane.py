@@ -147,6 +147,7 @@ class AFCLane:
         self.hub: str           = config.get('hub',None)                                # Hub name(AFC_hub) that belongs to this stepper, overrides hub that is set in unit(AFC_BoxTurtle/NightOwl/etc) section.
         # Overrides buffers set at the unit and extruder level
         self.buffer_name: str   = config.get("buffer", None)                            # Buffer name(AFC_buffer) that belongs to this stepper, overrides buffer that is set in extruder(AFC_extruder) or unit(AFC_BoxTurtle/NightOwl/etc) sections.
+        self.buffer_selector    = config.get('buffer_selector', None)                   # Selector values for buffer
         self.unit               = unit.split(':')[0]
         try:
             self.index              = int(unit.split(':')[1])
@@ -649,6 +650,29 @@ class AFCLane:
             self.buffer_obj.lanes[self.name] = self
             # Assigning buffer name just in case stepper is using buffer defined in units/extruder config
             self.buffer_name = self.buffer_obj.name
+
+        # buffer_selector follows the same override order as buffer_name/buffer_obj above:
+        if self.buffer_selector is None:
+            if self.unit_obj.buffer_selector is not None:
+                self.buffer_selector = self.unit_obj.buffer_selector
+            elif self.extruder_obj.buffer_selector is not None:
+                self.buffer_selector = self.extruder_obj.buffer_selector
+
+        if (self.buffer_obj is not None
+            and self.buffer_obj.selector is not None):
+            if self.buffer_selector is None:
+                unit_type = self.unit_obj.type.replace("_", "")
+                error_string = (
+                    f"Error: Buffer {self.buffer_obj.name} has selector_pins configured, but "
+                    f"buffer_selector has not been set for {self.fullname}. "
+                    f"Please add buffer_selector to either [AFC_stepper {self.name}], "
+                    f"[AFC_extruder {self.extruder_obj.name}] or "
+                    f"[AFC_{unit_type} {self.unit_obj.name}] section in your config file"
+                )
+                raise error(error_string)
+
+            self.buffer_selector = self.buffer_obj.validate_buffer_selector(
+                self.buffer_selector, self._config)
 
         if self.led_fault            is None: self.led_fault            = self.unit_obj.led_fault
         if self.led_ready            is None: self.led_ready            = self.unit_obj.led_ready
@@ -1578,6 +1602,20 @@ class AFCLane:
             self.buffer_obj.disable_buffer()
         self.espooler.disable_timer()
         self.disable_weight_timer()
+
+    def set_selector_pins(self):
+        """
+        Switch the buffer's selector pins (if configured) to this lane's channel.
+        """
+        if self.buffer_obj is not None:
+            self.buffer_obj.set_selector_pins(self)
+
+    def reset_selector_pins(self):
+        """
+        Reset the buffer's selector pins (if configured) back to their default state.
+        """
+        if self.buffer_obj is not None:
+            self.buffer_obj.reset_selector_pins()
 
     def buffer_status(self):
         """
