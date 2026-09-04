@@ -554,27 +554,11 @@ class afcFunction:
         cur_lane_loaded = self.get_current_lane_obj()
         self.logger.debug("Activating extruder lane: {}".format(cur_lane_loaded.name if cur_lane_loaded else "None"))
 
-        # active_shuttle_lane is the lane wired to whichever tool is currently mounted on the
-        # toolchanger shuttle, tracked separately from cur_lane_loaded below (which only becomes
-        # non-None once filament has actually been fed into that lane's tool). Selector pins get
-        # routed to active_shuttle_lane as soon as its tool mounts, so the buffer channel is
-        # already switched by the time a TOOL_LOAD tries to feed filament through it.
-        active_tool_obj = self.afc.tools.get(self.afc.toolhead.get_extruder().name)
-        active_shuttle_lane = None
-        if (active_tool_obj is not None
-            and active_tool_obj.tc_unit_name is not None
-            and active_tool_obj.on_shuttle()
-            and len(active_tool_obj.lanes) == 1):
-            active_shuttle_lane = next(iter(active_tool_obj.lanes.values()))
-        active_shuttle_buffer = active_shuttle_lane.buffer_obj if active_shuttle_lane is not None else None
-
         self.afc.spool.set_active_spool('')
         # Disable extruder steppers for non active lanes
         for key, obj in self.afc.lanes.items():
             if cur_lane_loaded is None or key != cur_lane_loaded.name:
                 obj.do_enable(False)
-                if obj.buffer_obj is not active_shuttle_buffer:
-                    obj.reset_selector_pins()
                 obj.disable_buffer()
                 if (cur_lane_loaded is None
                     or (obj.unit_obj.name != cur_lane_loaded.unit_obj.name)):
@@ -588,9 +572,6 @@ class afcFunction:
                         obj.unit_obj.lane_loaded(obj)
                 else:
                     obj.unit_obj.lane_unloaded(obj)
-
-        if active_shuttle_lane is not None:
-            active_shuttle_lane.set_selector_pins()
 
         # Exit early if lane is None
         if cur_lane_loaded is None:
