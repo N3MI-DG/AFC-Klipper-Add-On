@@ -157,6 +157,7 @@ class afcBoxTurtle(afcUnit):
     def calibrate_bowden(self, cur_lane, dis, tol):
         cur_extruder = cur_lane.extruder_obj
         cur_hub = cur_lane.hub_obj
+        cur_lane.set_selector_pins()
         if cur_lane.is_direct_hub():
             self.logger.raw(f'Calibrating dist_hub Length for {cur_lane.name}')
         else:

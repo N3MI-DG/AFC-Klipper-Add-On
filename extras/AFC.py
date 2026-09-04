@@ -647,6 +647,7 @@ class afc:
             current_lane = self.function.get_current_lane_obj()
             if current_lane:
                 if current_lane.buffer_obj is not None:
+                    current_lane.set_selector_pins()
                     current_lane.buffer_obj.update_filament_error_pos()
 
         return self.reactor.NEVER
