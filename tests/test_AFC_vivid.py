@@ -233,8 +233,8 @@ class TestCmdAfcSelectLane:
         lane = _make_lane("lane1")
         unit.afc.lanes = {"lane1": lane}
         unit.select_lane = MagicMock(return_value=(True, 15.0))
-        gcmd = MagicMock()
-        gcmd.get.return_value = "lane1"
+        from tests.conftest import MockGCodeCommand
+        gcmd = MockGCodeCommand(params={"LANE": "lane1"})
         unit.cmd_AFC_SELECT_LANE(gcmd)
         unit.select_lane.assert_called_once_with(lane)
 
@@ -243,8 +243,8 @@ class TestCmdAfcSelectLane:
         lane = _make_lane("lane1")
         unit.afc.lanes = {"lane1": lane}
         unit.select_lane = MagicMock(return_value=(True, 15.0))
-        gcmd = MagicMock()
-        gcmd.get.return_value = "lane1"
+        from tests.conftest import MockGCodeCommand
+        gcmd = MockGCodeCommand(params={"LANE": "lane1"})
         unit.cmd_AFC_SELECT_LANE(gcmd)
         info_msgs = [m for lvl, m in unit.logger.messages if lvl == "info"]
         assert any("lane1" in m for m in info_msgs)
@@ -254,8 +254,8 @@ class TestCmdAfcSelectLane:
         lane = _make_lane("lane1")
         unit.afc.lanes = {"lane1": lane}
         unit.select_lane = MagicMock(return_value=(False, 0))
-        gcmd = MagicMock()
-        gcmd.get.return_value = "lane1"
+        from tests.conftest import MockGCodeCommand
+        gcmd = MockGCodeCommand(params={"LANE": "lane1"})
         unit.cmd_AFC_SELECT_LANE(gcmd)
         error_msgs = [m for lvl, m in unit.logger.messages if lvl == "error"]
         assert any("lane1" in m for m in error_msgs)
@@ -263,8 +263,8 @@ class TestCmdAfcSelectLane:
     def test_calls_gcmd_error_when_lane_not_found(self):
         unit = _make_vivid()
         unit.afc.lanes = {}
-        gcmd = MagicMock()
-        gcmd.get.return_value = "missing_lane"
+        from tests.conftest import MockGCodeCommand
+        gcmd = MockGCodeCommand(params={"LANE": "missing_lane"})
         unit.cmd_AFC_SELECT_LANE(gcmd)
         gcmd.error.assert_called()
 
@@ -374,6 +374,7 @@ class TestSelectLane:
 
     def test_calls_homing_when_not_selected(self):
         unit = _make_vivid()
+        unit._selector_cal_dis_adjust = MagicMock()
         lane = _make_lane("lane1", has_selector=True)
         lane.fila_selector.get_status.return_value = {"filament_detected": False}
         unit.printer._objects = {}  # no stepper_enable → enabled=False
@@ -383,9 +384,20 @@ class TestSelectLane:
         assert dist == 15.0
         unit.selector_stepper_obj.do_homing_move.assert_called_once()
 
+    def test_calls_selector_cal_dis_adjust_after_homing(self):
+        unit = _make_vivid()
+        unit._selector_cal_dis_adjust = MagicMock()
+        lane = _make_lane("lane1", has_selector=True)
+        lane.fila_selector.get_status.return_value = {"filament_detected": False}
+        unit.printer._objects = {}
+        unit.selector_stepper_obj.do_homing_move.return_value = (True, 15.0)
+        unit.select_lane(lane)
+        unit._selector_cal_dis_adjust.assert_called_once_with(lane)
+
     def test_calls_unselect_lane_when_disabled_but_selector_triggered(self):
         """When stepper not enabled but selector triggered, unselect_lane is called first."""
         unit = _make_vivid()
+        unit._selector_cal_dis_adjust = MagicMock()
         lane = _make_lane("lane1", has_selector=True)
         lane.fila_selector.get_status.return_value = {"filament_detected": True}
         # stepper disabled (no stepper_enable object)
@@ -427,6 +439,13 @@ class TestCalibrateLane:
         unit.eject_lane = MagicMock()
         unit.calibrate_lane(lane, 5.0)
         unit.eject_lane.assert_called_once_with(lane)
+
+    def test_calls_lane_unloaded(self):
+        unit = _make_vivid()
+        lane = MagicMock()
+        unit.eject_lane = MagicMock()
+        unit.calibrate_lane(lane, 0)
+        lane.unit_obj.lane_unloaded.assert_called_once_with(lane)
 
 
 # ── _get_selector_enabled except branch ───────────────────────────────────────
